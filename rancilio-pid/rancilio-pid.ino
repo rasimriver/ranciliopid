@@ -1,7 +1,6 @@
 /********************************************************
-   Version 2.6.2 (01.02.2021) 
+   Version 2.4.1 (15.01.2021) 
    * ADD ZACwire (New TSIC lib)
-   * Shottimer und Displaytemplates
    * Auslagern der PIN Belegung in die UserConfig
    * Change MQTT Lib to PubSubClient | thx to pbeh
 ******************************************************/
@@ -15,10 +14,13 @@
 #include <U8g2lib.h>
 #include "PID_v1.h" //for PID calculation
 #include <DallasTemperature.h>    //Library for dallas temp sensor
-#include <BlynkSimpleEsp8266.h>
+//m #include <BlynkSimpleEsp8266.h> //m alte blynk
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h> //m neue blynk
 #include "icon.h"   //user icons for display
 #include <ZACwire.h> //NEW TSIC LIB
 #include <PubSubClient.h>
+#include <os.h> //m
 
 /********************************************************
   DEFINES
@@ -54,7 +56,7 @@ const int grafana = GRAFANA;
 const unsigned long wifiConnectionDelay = WIFICINNECTIONDELAY;
 const unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
 int machineLogo = MACHINELOGO;
-const unsigned long brewswitchDelay = BREWSWITCHDELAY;
+hw_timer_t * timer = NULL; //m
 
 // Wifi
 const char* hostname = HOSTNAME;
@@ -101,7 +103,7 @@ int pidON = 1 ;                 // 1 = control loop in closed loop
 int relayON, relayOFF;          // used for relay trigger type. Do not change!
 boolean kaltstart = true;       // true = Rancilio started for first time
 boolean emergencyStop = false;  // Notstop bei zu hoher Temperatur
-const char* sysVersion PROGMEM  = "Version 2.6.2 MASTER";   //System version
+const char* sysVersion PROGMEM  = "Version 2.4.1 MASTER";   //System version
 int inX = 0, inY = 0, inOld = 0, inSum = 0; //used for filter()
 int bars = 0; //used for getSignalStrength()
 boolean brewDetected = 0;
@@ -154,8 +156,7 @@ double brewtime = 25000;  //brewtime in ms
 double totalbrewtime = 0; //total brewtime set in softare or blynk
 double preinfusion = 2000;  //preinfusion time in ms
 double preinfusionpause = 5000;   //preinfusion pause time in ms
-double bezugsZeit = 0;   //total brewed time
-double bezugszeit_last_Millis = 0; // for shottimer delay after disarmed button
+unsigned long bezugsZeit = 0;   //total brewed time
 unsigned long startZeit = 0;    //start time of brew
 const unsigned long analogreadingtimeinterval = 10 ; // ms
 unsigned long previousMillistempanalogreading ; // ms for analogreading
@@ -272,7 +273,6 @@ BLYNK_WRITE(V10) {
 BLYNK_WRITE(V13)
 {
   pidON = param.asInt();
-  mqtt_publish("pidON", number2string(pidON));
 }
 BLYNK_WRITE(V30)
 {
@@ -508,7 +508,7 @@ void refreshTemp() {
       */
       temperature = 0;
       Temperatur_C = Sensor2.getTemp();
-      //Temperatur_C = random(93,94);
+      Temperatur_C = 96;
       if (!checkSensor(Temperatur_C) && firstreading == 0) return;  //if sensor data is not valid, abort function; Sensor must be read at least one time at system startup
       Input = Temperatur_C;
       if (Brewdetection != 0) {
@@ -602,7 +602,6 @@ void brew()
         if (brewswitch < 1000) {
           digitalWrite(pinRelayVentil, relayOFF);
           digitalWrite(pinRelayPumpe, relayOFF);
-          bezugszeit_last_Millis = millis();  // for shottimer delay after disarmed button
           currentMillistemp = 0;
           bezugsZeit = 0;
           brewDetected = 0; //rearm brewdetection
@@ -809,16 +808,9 @@ void sendToBlynk() {
       }
       if (grafana == 1 && blynksendcounter >= 6) {
         Blynk.virtualWrite(V60, Input, Output, bPID.GetKp(), bPID.GetKi(), bPID.GetKd(), setPoint );
-         if (MQTT == 1)
-         {
-            mqtt_publish("HeaterPower", number2string(Output));
-            mqtt_publish("Kp", number2string(bPID.GetKp()));
-            mqtt_publish("Ki", number2string(bPID.GetKi()));
-            mqtt_publish("pidON", number2string(pidON));
-            mqtt_publish("brewtime", number2string(brewtime/1000));
-            mqtt_publish("preinfusionpause", number2string(preinfusionpause/1000));
-            mqtt_publish("preinfusion", number2string(preinfusion/1000));
-         }
+        mqtt_publish("HeaterPower", number2string(Output));
+        mqtt_publish("Kp", number2string(bPID.GetKp()));
+        mqtt_publish("Ki", number2string(bPID.GetKi()));
         blynksendcounter = 0;
       } else if (grafana == 0 && blynksendcounter >= 5) {
         blynksendcounter = 0;
@@ -907,25 +899,42 @@ void getSignalStrength() {
 /********************************************************
     Timer 1 - ISR for PID calculation and heat realay output
 ******************************************************/
-void ICACHE_RAM_ATTR onTimer1ISR() {
-  timer1_write(6250); // set interrupt time to 20ms
+//mvoid ICACHE_RAM_ATTR onTimer1ISR() {
+//m  timer1_write(6250); // set interrupt time to 20ms
 
-  if (Output <= isrCounter) {
-    digitalWrite(pinRelayHeater, LOW);
-  } else {
-    digitalWrite(pinRelayHeater, HIGH);
-  }
+//m  if (Output <= isrCounter) {
+//m    digitalWrite(pinRelayHeater, LOW);
+//m  } else {
+//m    digitalWrite(pinRelayHeater, HIGH);
+//m  }
 
-  isrCounter += 20; // += 20 because one tick = 20ms
-  //set PID output as relais commands
-  if (isrCounter > windowSize) {
-    isrCounter = 0;
-  }
+//m  isrCounter += 20; // += 20 because one tick = 20ms
+//m  //set PID output as relais commands
+//m  if (isrCounter > windowSize) {
+//m    isrCounter = 0;
+//m  }
 
-  //run PID calculation
-  bPID.Compute();
-}
+//m  //run PID calculation
+//m  bPID.Compute();
+//m}
 
+void IRAM_ATTR onTimer(){ //m
+ //timer1_write(50000); // set interrupt time to 10ms //m
+    timerAlarmWrite(timer, 10000, true); //m
+  if (Output <= isrCounter) { //m
+    digitalWrite(pinRelayHeater, LOW); //m
+   // DEBUG_println("Power off!"); //m
+  } else { //m
+    digitalWrite(pinRelayHeater, HIGH); //m
+   // DEBUG_println("Power on!"); //m
+  } //m
+
+  isrCounter += 10; // += 10 because one tick = 10ms //m
+  //set PID output as relais commands //m
+  if (isrCounter > windowSize) { //m
+    isrCounter = 0; //m
+  } //m
+} //m
 /********************************************************
     MQTT Callback Function: set Parameters through MQTT
 ******************************************************/
@@ -944,50 +953,39 @@ void mqtt_callback(char* topic, byte* data, unsigned int length) {
   double data_double;
   int data_int;
 
-
-
- // DEBUG_print("mqtt_parse(%s, %s)\n", topic_str, data_str);
+  //DEBUG_print("mqtt_parse(%s, %s)\n", topic_str, data_str);
   snprintf(topic_pattern, sizeof(topic_pattern), "%s%s/%%[^\\/]/%%[^\\/]", mqtt_topic_prefix, hostname);
-  DEBUG_println(topic_pattern);
+  //DEBUG_print("topic_pattern=%s\n",topic_pattern);
   if ( (sscanf( topic_str, topic_pattern , &configVar, &cmd) != 2) || (strcmp(cmd, "set") != 0) ) {
-  DEBUG_print(topic_str);
+    //DEBUG_print("Ignoring topic (%s)\n", topic_str);
     return;
   }
-  DEBUG_println(topic_str);
-  DEBUG_println(data_str);
   if (strcmp(configVar, "setPoint") == 0) {
     sscanf(data_str, "%lf", &data_double);
-    mqtt_publish("setPoint", number2string(setPoint));
-    if (Blynk.connected()) { Blynk.virtualWrite(V7, String(data_double));}
     setPoint = data_double;
+    if (Blynk.connected()) { Blynk.virtualWrite(V7, setPoint);}
+    mqtt_publish("setPoint", number2string(setPoint));
     return;
   }
   if (strcmp(configVar, "brewtime") == 0) {
     sscanf(data_str, "%lf", &data_double);
-    if (Blynk.connected()) { Blynk.virtualWrite(V8, String(data_double));}
+    brewtime = data_double * 1000;
+    if (Blynk.connected()) { Blynk.virtualWrite(V8, brewtime/1000);}
     mqtt_publish("brewtime", number2string(brewtime/1000));
-    brewtime = data_double * 1000 ;
     return;
   }
   if (strcmp(configVar, "preinfusion") == 0) {
     sscanf(data_str, "%lf", &data_double);
-    if (Blynk.connected()) { Blynk.virtualWrite(V9, String(data_double));}
+    preinfusion = data_double *1000;
+    if (Blynk.connected()) { Blynk.virtualWrite(V9, preinfusion/1000);}
     mqtt_publish("preinfusion", number2string(preinfusion/1000));
-    preinfusion = data_double * 1000;
     return;
   }
   if (strcmp(configVar, "preinfusionpause") == 0) {
     sscanf(data_str, "%lf", &data_double);
-    if (Blynk.connected()) { Blynk.virtualWrite(V10, String(data_double));}
+    preinfusion = data_double * 1000;
+    if (Blynk.connected()) { Blynk.virtualWrite(V10, preinfusionpause/1000);}
     mqtt_publish("preinfusionpause", number2string(preinfusionpause/1000));
-    preinfusionpause = data_double * 1000;
-    return;
-  }
-    if (strcmp(configVar, "pidON") == 0) {
-    sscanf(data_str, "%lf", &data_double);
-    if (Blynk.connected())  { Blynk.virtualWrite(V13,String(data_double));}
-    mqtt_publish("pidON", number2string(pidON));
-    pidON = data_double ;
     return;
   }
 
@@ -1009,7 +1007,6 @@ void ETriggervoid()
     {  // check 
       ETriggeractive = 1 ;
       previousMillisETrigger = currentMillisETrigger;
-
       digitalWrite(PINETRIGGER, relayETriggerON);
     }
     // 10 Seconds later
@@ -1043,9 +1040,6 @@ const unsigned long intervalDisplay = 500;
   #if (DISPLAYTEMPLATE == 2)
       #include "Displaytemplateminimal.h"
   #endif    
-  #if (DISPLAYTEMPLATE == 3)
-      #include "Displaytemplatetemponly.h"
-  #endif   
 #endif
 
 void setup() {
@@ -1109,7 +1103,7 @@ void setup() {
   ******************************************************/
   if (Offlinemodus == 0) 
   {
-    WiFi.hostname(hostname);
+//m    WiFi.hostname(hostname);
     unsigned long started = millis();
     #if DISPLAY != 0
       displayLogo("1: Connect Wifi to:", ssid);
@@ -1120,6 +1114,7 @@ void setup() {
     WiFi.mode(WIFI_STA);
     WiFi.persistent(false);   //needed, otherwise exceptions are triggered \o.O/
     WiFi.begin(ssid, pass);
+    WiFi.setHostname(hostname); //m get ergänzt, nach unten geschoben 
     DEBUG_print("Connecting to ");
     DEBUG_print(ssid);
     DEBUG_println(" ...");
@@ -1272,7 +1267,7 @@ void setup() {
     temperature = 0;
     Input = Sensor2.getTemp();
   }
-
+ 
   /********************************************************
     movingaverage ini array
   ******************************************************/
@@ -1302,16 +1297,25 @@ void setup() {
     TIM_DIV16 = 1,  //5MHz (5 ticks/us - 1677721.4 us max)
     TIM_DIV256 = 3  //312.5Khz (1 tick = 3.2us - 26843542.4 us max)
   ******************************************************/
-  timer1_isr_init();
-  timer1_attachInterrupt(onTimer1ISR);
+//m  timer1_isr_init();
+//m  timer1_attachInterrupt(onTimer1ISR);
   //timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
   //timer1_write(50000); // set interrupt time to 10ms
-  timer1_enable(TIM_DIV256, TIM_EDGE, TIM_SINGLE);
-  timer1_write(6250); // set interrupt time to 20ms
+//m  timer1_enable(TIM_DIV256, TIM_EDGE, TIM_SINGLE);
+//m  timer1_write(6250); // set interrupt time to 20ms
+timer = timerBegin(0, 80, true); //m
+timerAttachInterrupt(timer, &onTimer, true);//m
+timerAlarmWrite(timer, 10000, true);//m
+timerAlarmEnable(timer);//m
+
   setupDone = true;
 }
 
-
+//m    isrCounter += 10; // += 10 because one tick = 10ms
+//m    //set PID output as relais commands
+//m    if (isrCounter > windowSize) {
+//m      isrCounter = 0;
+//m    }
 
 void loop() {
   //Only do Wifi stuff, if Wifi is connected
@@ -1329,15 +1333,19 @@ void loop() {
     ArduinoOTA.handle();  // For OTA
     // Disable interrupt it OTA is starting, otherwise it will not work
     ArduinoOTA.onStart([]() {
-      timer1_disable();
+//m      timer1_disable();
+    timerAlarmDisable(timer); //m
       digitalWrite(pinRelayHeater, LOW); //Stop heating
     });
     ArduinoOTA.onError([](ota_error_t error) {
-      timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
+      
+//m      timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
+     timerAlarmEnable(timer); //m
     });
     // Enable interrupts if OTA is finished
     ArduinoOTA.onEnd([]() {
-      timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
+//m      timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
+    timerAlarmEnable(timer); //m
     });
 
     if (Blynk.connected()) {  // If connected run as normal
