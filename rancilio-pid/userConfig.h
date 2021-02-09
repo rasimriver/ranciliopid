@@ -17,7 +17,7 @@
 #define MACHINELOGO 1        // 1 = Rancilio, 2 = Gaggia
 #define DISPALYROTATE U8G2_R0   // rotate display clockwise: U8G2_R0 = no rotation; U8G2_R1 = 90°; U8G2_R2 = 180°; U8G2_R3 = 270°
 #define SHOTTIMER  1 // 0 = deactivated, 1 =  SHOTTIMER
-#define HEATINGLOGO 2 // 0 = deactivated, 1 =  HEATINGLOGO Rancilio  2: HEATINGLOGO Gaggia 
+#define HEATINGLOGO 0 // 0 = deactivated, 1 =  HEATINGLOGO Rancilio  2: HEATINGLOGO Gaggia 
 #define OFFLINEGLOGO 1 // 0 = deactivated, 1 =  offline Logo
 #define BREWSWITCHDELAY 3000 // time in ms
 
